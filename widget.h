@@ -8,10 +8,14 @@ class Widget : public QLabel
 {
     Q_OBJECT
 
-    QImage image;
+    QImage image{};
+    const int blurMatrixRadius = 3;
 
 protected:
     virtual void mousePressEvent(QMouseEvent *) override;
+    virtual void dragEnterEvent(QDragEnterEvent *event) override;
+    virtual void dragMoveEvent(QDragMoveEvent *event) override;
+    virtual void dropEvent(QDropEvent *event) override;
 
 public:
     Widget(QWidget *parent = nullptr);
