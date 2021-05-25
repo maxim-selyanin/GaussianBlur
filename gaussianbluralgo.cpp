@@ -16,9 +16,9 @@ ColorType getColor(QRgb pixel, Colors color);
 //увеличить result на addedValue, если их сумма не превысит максимальное значение для result
 void checkAndIncreaseResult(ColorType &result, FloatingPointType addedValue);
 //заблюрить цвет colorType пикселя resultRef с окрестностью vicinity и матрицей преобразования transformMatrix
-void blurPlotSignleColor(QRgb &resultRef, const QRgb *vicinity, const MatrixType &transformMatrix, Colors colorType);
+void blurPixelSignleColor(QRgb &resultRef, const QRgb *vicinity, const MatrixType &transformMatrix, Colors colorType);
 //заблюрить все цвета пикселя resultRef исходя из окрестности vicinity и матрицы transformMatrix
-void blurPlotAllColors(QRgb &resultRef, const QRgb *vicinity, const MatrixType &transformMatrix);
+void blurPixelAllColors(QRgb &resultRef, const QRgb *vicinity, const MatrixType &transformMatrix);
 
 //"размазать" первые smudgedAmount значения вектора source по его остальным значениям и записать результат в target
 template <typename ConstIterator, typename Iterator>
@@ -28,13 +28,16 @@ void smudgeFirstValues(ConstIterator sourceBegin, ConstIterator sourceEnd
 //получаем "обрезанную" матрицу для преобразования угловых точек, у которых нет левой/правой/верхней/нижней части окрестности
 MatrixType getSlicedMatrix(const MatrixType &transformMatrix, int slicedAmount);
 //блюрим угловой пиксель resultRef с неполной окрестностью vicinity и "обрезанной" матрицей transformMatrix
-void blurAnglePlot(QRgb &resultRef, const QRgb *vicinity, const MatrixType &transformMatrix, int slicedAmount);
+void blurAnglePixel(QRgb &resultRef, const QRgb *vicinity, const MatrixType &transformMatrix, int slicedAmount);
 
 
 //блюрим некую последовательность пикселей с доступом из функции getter, длиной lineSize и матрицей transformMatrix
 //геттер сделан, потому что к пикселям столбцов нет прямого доступа, для унифицированной работы со строками и столбцами
 void blurBlock(std::function<QRgb&(int i)> getter, int lineSize
                , const MatrixType &transformMatrix);
+//перегрузка с передаваемым состоянием блока
+void blurBlock(std::function<QRgb&(int i)> getter, const LineType &blockState, const MatrixType &transformMatrix);
+
 //блюрим линию
 void blurLine(QImage &image, int number, const MatrixType &transformMatrix);
 //блюрим стоблец
@@ -118,7 +121,7 @@ void smudgeFirstValues(ConstIterator sourceBegin, ConstIterator sourceEnd
 }
 
 //блюрим пиксель одним цветом
-void blurPlotSignleColor(QRgb &resultRef, const QRgb *vicinity, const MatrixType &transformMatrix, Colors colorType) {
+void blurPixelSignleColor(QRgb &resultRef, const QRgb *vicinity, const MatrixType &transformMatrix, Colors colorType) {
     ColorType result = 0;
     for (int i = 0; i < transformMatrix.length(); ++i) {
         FloatingPointType part =
@@ -130,16 +133,16 @@ void blurPlotSignleColor(QRgb &resultRef, const QRgb *vicinity, const MatrixType
 }
 
 //блюрим пиксель тремя цветами
-void blurPlotAllColors(QRgb &resultRef, const QRgb *vicinity, const MatrixType &transformMatrix) {
-    blurPlotSignleColor(resultRef, vicinity, transformMatrix, Colors::red);
-    blurPlotSignleColor(resultRef, vicinity, transformMatrix, Colors::green);
-    blurPlotSignleColor(resultRef, vicinity, transformMatrix, Colors::blue);
+void blurPixelAllColors(QRgb &resultRef, const QRgb *vicinity, const MatrixType &transformMatrix) {
+    blurPixelSignleColor(resultRef, vicinity, transformMatrix, Colors::red);
+    blurPixelSignleColor(resultRef, vicinity, transformMatrix, Colors::green);
+    blurPixelSignleColor(resultRef, vicinity, transformMatrix, Colors::blue);
 }
 
 //блюрим угловой пиксель
-void blurAnglePlot(QRgb &resultRef, const QRgb *vicinity
+void blurAnglePixel(QRgb &resultRef, const QRgb *vicinity
                    , const MatrixType &transformMatrix, int slicedAmount) {
-    blurPlotAllColors(resultRef, vicinity,
+    blurPixelAllColors(resultRef, vicinity,
              getSlicedMatrix(transformMatrix, slicedAmount));
 }
 
@@ -151,25 +154,32 @@ void blurBlock(std::function<QRgb&(int i)> getter, int lineSize, const MatrixTyp
         blockState[i] = getter(i);
     }
 
+    blurBlock(getter, blockState, transformMatrix);
+}
+
+void blurBlock(std::function<QRgb&(int i)> getter, const LineType &blockState, const MatrixType &transformMatrix) {
     //blur angle points
     int anglePointsAmount = transformMatrix.length() / 2;
 
+    //размер блока
+    int lineSize = blockState.length();
+
     //blur begin angle points
     for (int i = 0; i < anglePointsAmount; ++i) {
-        blurAnglePlot(getter(i), blockState.constData(), transformMatrix, i - anglePointsAmount);
+        blurAnglePixel(getter(i), blockState.constData(), transformMatrix, i - anglePointsAmount);
     }
 
     //blur end angle points
     for (int i = 0; i < anglePointsAmount; ++i) {
         int vicinityOffset = lineSize - transformMatrix.length() + i + 1;
         int anglePointOffset = lineSize - anglePointsAmount + i;
-        blurAnglePlot(getter(anglePointOffset), blockState.constData() + vicinityOffset, transformMatrix, i + 1);
+        blurAnglePixel(getter(anglePointOffset), blockState.constData() + vicinityOffset, transformMatrix, i + 1);
     }
 
     //blur normal points
     for (int i = anglePointsAmount; i < lineSize - anglePointsAmount; ++i)
     {
-        blurPlotAllColors(getter(i), blockState.constData() + i - anglePointsAmount, transformMatrix);
+        blurPixelAllColors(getter(i), blockState.constData() + i - anglePointsAmount, transformMatrix);
     }
 }
 
@@ -181,9 +191,12 @@ void blurLine(QImage &image, int number, const MatrixType &transformMatrix) {
         return rawData[position];
     };
 
-    //здесь можно было написать сохранение строки в векторе через memcpy, но при этом всё падает
+    //заполняем исходное состояние строки
+    LineType lineState(image.width());
+    std::memcpy(lineState.data(), image.constScanLine(number), sizeof (QRgb) *
+                static_cast<std::size_t>(image.width()));
 
-    blurBlock(getter, image.width(), transformMatrix);
+    blurBlock(getter, lineState, transformMatrix);
 }
 
 //
@@ -194,7 +207,13 @@ void blurColumn(QImage &image, int number, const MatrixType &transformMatrix) {
         return rawData[number];
     };
 
-    blurBlock(getter, image.height(), transformMatrix);
+    //заполняем исходное состояние столбца
+    LineType columnState(image.height());
+    for (int i = 0; i < columnState.length(); ++i) {
+        columnState[i] = getter(i);
+    }
+
+    blurBlock(getter, columnState, transformMatrix);
 }
 }
 
