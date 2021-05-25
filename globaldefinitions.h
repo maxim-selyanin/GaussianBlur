@@ -12,7 +12,7 @@ constexpr char pic4Path[] = ":/images/coolangles.jpg";
 //представление цвета 8 битами
 using ColorType = quint8;
 //float быстрее, double точнее
-using FloatingPointType = double;
+using FloatingPointType = float;
 //матрица в одну строку/столбец
 using MatrixType = QVector<FloatingPointType>;
 //линия исходных данных
