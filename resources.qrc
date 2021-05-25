@@ -1,0 +1,8 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource>
+    <file>images/defaultpic.jpg</file>
+	<file>images/bigapple.jpg</file>
+	<file>images/smallapple.jpg</file>
+	<file>images/coolangles.jpg</file>
+</qresource>
+</RCC>
